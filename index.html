@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f2937">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>불량 사진 판독</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1f2937; --muted: #6b7280; --line: #e5e7eb;
+    --primary: #2563eb; --primary-text: #ffffff; --orange: #ea7a0c; --orange-bg: #fff1e3;
+    --bar-bg: #e5e7eb; --ok: #16a34a; --error: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318; --card: #1b1e25; --text: #e7e9ee; --muted: #9aa1ad; --line: #2c313b;
+      --primary: #3b82f6; --orange: #f59e0b; --orange-bg: #3a2a12; --bar-bg: #2c313b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    line-height: 1.5; -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 560px; margin: 0 auto; padding: 16px 16px calc(32px + env(safe-area-inset-bottom)); }
+  h1 { font-size: 1.25rem; margin: 8px 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+  .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .btn {
+    display: flex; align-items: center; justify-content: center; min-height: 56px; padding: 12px;
+    border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    font-size: 1rem; font-weight: 600; cursor: pointer; text-align: center;
+  }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  input[type=file] { display: none; }
+  #photo { display: block; width: 100%; max-height: 60vh; object-fit: contain; border-radius: 10px; background: #000; }
+  .loading { display: flex; align-items: center; gap: 10px; padding: 14px 0 2px; font-weight: 600; }
+  .spinner { width: 20px; height: 20px; border: 3px solid var(--bar-bg); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .type-name { font-size: 2rem; font-weight: 800; margin: 14px 0 2px; word-break: keep-all; }
+  .type-code { color: var(--muted); font-size: .9rem; }
+  .badge { display: inline-block; margin-top: 8px; padding: 4px 10px; border-radius: 999px; background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange); font-weight: 700; font-size: .9rem; }
+  .conf { margin: 14px 0 4px; }
+  .conf-head { display: flex; justify-content: space-between; font-size: .9rem; color: var(--muted); }
+  .conf-head b { color: var(--text); font-size: 1rem; }
+  .bar { height: 12px; background: var(--bar-bg); border-radius: 999px; overflow: hidden; margin-top: 4px; }
+  .bar > div { height: 100%; background: var(--primary); border-radius: 999px; transition: width .4s; }
+  .bar.low > div { background: var(--orange); }
+  h2 { font-size: 1rem; margin: 18px 0 6px; }
+  p { margin: 0; }
+  .checks { list-style: none; padding: 0; margin: 0; }
+  .checks label { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .checks li:last-child label { border-bottom: 0; }
+  .checks input { width: 22px; height: 22px; margin: 1px 0 0; flex: none; accent-color: var(--primary); }
+  .checks input:checked + span { color: var(--muted); text-decoration: line-through; }
+  .error { color: var(--error); font-weight: 600; margin-top: 12px; }
+  .muted { color: var(--muted); }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 12px; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: .85rem; }
+  th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--bg); white-space: nowrap; }
+  #qr-box { display: none; margin-top: 24px; text-align: center; color: var(--muted); font-size: .8rem; }
+  #qr-box svg, #qr-box img { width: 110px; height: 110px; display: block; margin: 6px auto 0; background: #fff; padding: 6px; border-radius: 8px; }
+  @media (pointer: fine) and (min-width: 768px) { #qr-box.ready { display: block; } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>불량 사진 판독</h1>
+
+  <section class="card">
+    <div class="buttons">
+      <label class="btn primary" id="btn-camera">사진 찍기
+        <input type="file" id="in-camera" accept="image/*" capture="environment">
+      </label>
+      <label class="btn" id="btn-album">앨범에서 고르기
+        <input type="file" id="in-album" accept="image/*">
+      </label>
+    </div>
+    <p class="muted" style="margin-top:10px;font-size:.85rem">불량 부위가 화면 가운데에 크게 보이도록 찍어 주세요.</p>
+  </section>
+
+  <section class="card" id="result-card" hidden>
+    <img id="photo" alt="찍은 사진">
+    <div class="loading" id="loading" hidden><div class="spinner"></div>판독 중…</div>
+    <div class="error" id="error" hidden></div>
+    <div id="result" hidden>
+      <div class="type-name" id="r-name"></div>
+      <div class="type-code" id="r-code"></div>
+      <span class="badge" id="r-badge" hidden>사람 판정 필요</span>
+      <div class="conf">
+        <div class="conf-head"><span>확신도</span><b id="r-conf"></b></div>
+        <div class="bar" id="r-bar"><div></div></div>
+      </div>
+      <h2>판단 근거</h2>
+      <p id="r-evidence"></p>
+      <h2>추정 원인</h2>
+      <p id="r-cause"></p>
+      <h2>현장 확인할 것</h2>
+      <ul class="checks" id="r-checks"></ul>
+    </div>
+  </section>
+
+  <button class="btn" id="btn-table" style="width:100%">불량유형표 보기</button>
+  <div class="table-wrap" id="table-wrap" hidden></div>
+
+  <div id="qr-box">
+    휴대폰으로 열기
+    <div id="qr"></div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const MAX_SIDE = 1024;
+
+  // 사진을 긴 쪽 1024픽셀 JPEG로 줄인다.
+  function resizeImage(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.round(img.naturalWidth * scale);
+        const h = Math.round(img.naturalHeight * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('사진을 읽을 수 없습니다')); };
+      img.src = url;
+    });
+  }
+
+  function setBusy(busy) {
+    for (const id of ['in-camera', 'in-album']) $(id).disabled = busy;
+    $('btn-camera').classList.toggle('disabled', busy);
+    $('btn-album').classList.toggle('disabled', busy);
+    $('loading').hidden = !busy;
+  }
+
+  function showResult(r) {
+    $('r-name').textContent = r.유형명;
+    $('r-code').textContent = r.유형코드 === '판단 불가' ? '' : r.유형코드;
+    $('r-badge').hidden = !r.사람판정필요;
+    $('r-conf').textContent = r.확신도 + '%';
+    $('r-bar').firstElementChild.style.width = r.확신도 + '%';
+    $('r-bar').classList.toggle('low', r.사람판정필요);
+    $('r-evidence').textContent = r.판단근거 || '-';
+    $('r-cause').textContent = r.추정원인 || '-';
+    const list = $('r-checks');
+    list.innerHTML = '';
+    const checks = r.현장확인할것.length ? r.현장확인할것 : ['-'];
+    for (const text of checks) {
+      const li = document.createElement('li');
+      const label = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      const span = document.createElement('span');
+      span.textContent = text;
+      label.append(box, span);
+      li.append(label);
+      list.append(li);
+    }
+    $('result').hidden = false;
+  }
+
+  async function handleFile(input) {
+    const file = input.files[0];
+    input.value = '';
+    if (!file) return;
+    $('result-card').hidden = false;
+    $('result').hidden = true;
+    $('error').hidden = true;
+    setBusy(true);
+    try {
+      const image = await resizeImage(file);
+      $('photo').src = image;
+      $('result-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const res = await fetch('/api/judge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image }),
+      });
+      const data = await res.json().catch(() => ({ error: '서버 응답을 읽을 수 없습니다' }));
+      if (!res.ok) throw new Error(data.error || '판독에 실패했습니다');
+      showResult(data);
+    } catch (e) {
+      $('error').textContent = '오류: ' + e.message;
+      $('error').hidden = false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  $('in-camera').addEventListener('change', (e) => handleFile(e.target));
+  $('in-album').addEventListener('change', (e) => handleFile(e.target));
+
+  // 불량유형표 보기
+  let tableLoaded = false;
+  $('btn-table').addEventListener('click', async () => {
+    const wrap = $('table-wrap');
+    if (!wrap.hidden) {
+      wrap.hidden = true;
+      $('btn-table').textContent = '불량유형표 보기';
+      return;
+    }
+    if (!tableLoaded) {
+      try {
+        const types = await (await fetch('/data/defect-types.json')).json();
+        const cols = Object.keys(types[0] || {});
+        const table = document.createElement('table');
+        const head = table.createTHead().insertRow();
+        for (const c of cols) { const th = document.createElement('th'); th.textContent = c; head.append(th); }
+        const body = table.createTBody();
+        for (const t of types) {
+          const row = body.insertRow();
+          for (const c of cols) row.insertCell().textContent = t[c];
+        }
+        wrap.replaceChildren(table);
+        tableLoaded = true;
+      } catch {
+        wrap.textContent = '유형표를 불러오지 못했습니다';
+      }
+    }
+    wrap.hidden = false;
+    $('btn-table').textContent = '불량유형표 닫기';
+  });
+
+  // PC 화면에서만: 지금 주소 QR
+  if (window.qrcode) {
+    const qr = qrcode(0, 'M');
+    qr.addData(location.href);
+    qr.make();
+    $('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    $('qr-box').classList.add('ready');
+  }
+</script>
+</body>
+</html>
